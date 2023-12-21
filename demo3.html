@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>three.js webgl - mesh - batch</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<link type="text/css" rel="stylesheet" href="main.css">
+	<style>
+		#info {
+			background-color: rgba(0,0,0,0.75);
+		}
+	</style>
+</head>
+<body>
+
+	<div id="info">
+
+		<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> webgl - mesh - batch
+
+	</div>
+	<script id="waterVertexShader" type="x-shader/x-vertex">
+		#define PHONG
+		float PI = 3.14;
+		#define USE_BATCHING
+		uniform float time;
+		varying vec3 vViewPosition;
+		attribute mat4 aCurve;
+		attribute mat4 transformationMatrix;
+		#include <common>
+		#include <batching_pars_vertex>
+		#include <uv_pars_vertex>
+		#include <displacementmap_pars_vertex>
+		#include <envmap_pars_vertex>
+		#include <color_pars_vertex>
+		#include <fog_pars_vertex>
+		#include <normal_pars_vertex>
+		#include <morphtarget_pars_vertex>
+		#include <skinning_pars_vertex>
+		#include <shadowmap_pars_vertex>
+		#include <logdepthbuf_pars_vertex>
+		#include <clipping_planes_pars_vertex>
+
+			float easeInOutQuint(float t){
+				return t < 0.5 ? 16.0 * t * t * t * t * t : 1.0 + 16.0 * (--t) * t * t * t * t;
+			  }
+			  float easeOutQuint(float t){
+				return 1. + (--t) * t * t * t * t;
+			  }
+			  float easeOut(float t){
+				return  t * t * t;
+			  }
+			  
+			  vec3 mod289(vec3 x) {
+				return x - floor(x * (1.0 / 289.0)) * 289.0;
+			  }
+			  
+			  vec2 mod289(vec2 x) {
+				return x - floor(x * (1.0 / 289.0)) * 289.0;
+			  }
+			  
+			  vec3 permute(vec3 x) {
+				return mod289(((x*34.0)+1.0)*x);
+			  }
+			  
+			  float noise(vec2 v)
+			  {
+				const vec4 C = vec4(0.211324865405187,  // (3.0-sqrt(3.0))/6.0
+								  0.366025403784439,  // 0.5*(sqrt(3.0)-1.0)
+								 -0.577350269189626,  // -1.0 + 2.0 * C.x
+								  0.024390243902439); // 1.0 / 41.0
+				// First corner
+				vec2 i  = floor(v + dot(v, C.yy) );
+				vec2 x0 = v -   i + dot(i, C.xx);
+			  
+				// Other corners
+				vec2 i1;
+				//i1.x = step( x0.y, x0.x ); // x0.x > x0.y ? 1.0 : 0.0
+				//i1.y = 1.0 - i1.x;
+				i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+				// x0 = x0 - 0.0 + 0.0 * C.xx ;
+				// x1 = x0 - i1 + 1.0 * C.xx ;
+				// x2 = x0 - 1.0 + 2.0 * C.xx ;
+				vec4 x12 = x0.xyxy + C.xxzz;
+				x12.xy -= i1;
+			  
+				// Permutations
+				i = mod289(i); // Avoid truncation effects in permutation
+				vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
+					+ i.x + vec3(0.0, i1.x, 1.0 ));
+			  
+				vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+				m = m*m ;
+				m = m*m ;
+			  
+				// Gradients: 41 points uniformly over a line, mapped onto a diamond.
+				// The ring size 17*17 = 289 is close to a multiple of 41 (41*7 = 287)
+			  
+				vec3 x = 2.0 * fract(p * C.www) - 1.0;
+				vec3 h = abs(x) - 0.5;
+				vec3 ox = floor(x + 0.5);
+				vec3 a0 = x - ox;
+			  
+				// Normalise gradients implicitly by scaling m
+				// Approximation of: m *= inversesqrt( a0*a0 + h*h );
+				m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+			  
+				// Compute final noise value at P
+				vec3 g;
+				g.x  = a0.x  * x0.x  + h.x  * x0.y;
+				g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+				return 130.0 * dot(m, g);
+			  }
+			  
+			  vec3 curl(float	x,	float	y,	float	z)
+			  {
+			  
+				float	eps	= 1., eps2 = 2. * eps;
+				float	n1,	n2,	a,	b;
+			  
+				x += time * 1.05;
+				y += time * 1.05;
+				z += time * 1.05;
+			  
+				vec3	curl = vec3(0.6,.2,.9);
+			  
+				n1	=	noise(vec2( x,	y	+	eps ));
+				n2	=	noise(vec2( x,	y	-	eps ));
+				a	=	(n1	-	n2)/eps2;
+			  
+				n1	=	noise(vec2( x,	z	+	eps));
+				n2	=	noise(vec2( x,	z	-	eps));
+				b	=	(n1	-	n2)/eps2;
+			  
+				curl.x	=	a	-	b;
+			  
+				n1	=	noise(vec2( y,	z	+	eps));
+				n2	=	noise(vec2( y,	z	-	eps));
+				a	=	(n1	-	n2)/eps2;
+			  
+				n1	=	noise(vec2( x	+	eps,	z));
+				n2	=	noise(vec2( x	+	eps,	z));
+				b	=	(n1	-	n2)/eps2;
+			  
+				curl.y	=	a	-	b;
+			  
+				n1	=	noise(vec2( x	+	eps,	y));
+				n2	=	noise(vec2( x	-	eps,	y));
+				a	=	(n1	-	n2)/eps2;
+			  
+				n1	=	noise(vec2(  y	+	eps,	z));
+				n2	=	noise(vec2(  y	-	eps,	z));
+				b	=	(n1	-	n2)/eps2;
+			  
+				curl.z	=	a	-	b;
+			  
+				return	curl;
+			  }
+		void main() {
+		#include <uv_vertex>
+		#include <color_vertex>
+		#include <morphcolor_vertex>
+		#include <batching_vertex>
+		#include <beginnormal_vertex>
+		#include <morphnormal_vertex>
+		#include <skinbase_vertex>
+		#include <skinnormal_vertex>
+		#include <defaultnormal_vertex>
+		#include <normal_vertex>
+		  
+			vec3 transformed = vec3( position );                               
+		
+				vec3 round1 = position + curl(position.x,position.y,position.z);
+			
+				//transformed += position.x + time/10.; 
+		#include <morphtarget_vertex> 
+		#include <skinning_vertex>
+		#include <displacementmap_vertex>
+		#include <project_vertex>
+		#include <logdepthbuf_vertex>
+		#include <clipping_planes_vertex>
+		
+		vViewPosition = - mvPosition.xyz;
+		#include <worldpos_vertex>
+		#include <envmap_vertex>
+		#include <shadowmap_vertex>
+		}
+	</script>
+	<script type="importmap">
+		{
+			"imports": {
+				"three": "./three.module.js",
+				"three/addons/": "./libs/"
+			}
+		}
+	</script>
+
+	<script type="module">
+		import * as THREE from 'three';
+
+		import Stats from 'three/addons/stats.module.js';
+		import { GUI } from 'three/addons/lil-gui.module.min.js';
+
+		import { OrbitControls } from 'three/addons/OrbitControls.js';
+		import { radixSort } from 'three/addons/SortUtils.js';
+
+		let stats, gui, guiStatsEl;
+		let camera, controls, scene, renderer;
+		let geometries, mesh, material;
+		const ids = [];
+		const matrix = new THREE.Matrix4();
+
+		//
+
+		const position = new THREE.Vector3();
+		const rotation = new THREE.Euler();
+		const quaternion = new THREE.Quaternion();
+		const scale = new THREE.Vector3();
+		// Example vertex shader
+		const vertexShader = `
+		varying vec3 vColor;
+		attribute vec3 customPosition;
+		void main() {
+			vColor = position; // Map object position to color
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+		}
+		`;
+
+		// Example fragment shader
+		const fragmentShader = `
+		varying vec3 vColor;
+
+		void main() {
+			gl_FragColor = vec4(vColor, 1.0);
+		}
+		`;
+		const fragmentPHONG =  `
+				#define PHONG
+uniform vec3 diffuse;
+uniform vec3 emissive;
+uniform vec3 specular;
+uniform float shininess;
+uniform float opacity;
+uniform sampler2D image;
+#include <common>
+#include <packing>
+#include <dithering_pars_fragment>
+#include <color_pars_fragment>
+#include <uv_pars_fragment>
+#include <map_pars_fragment>
+#include <alphamap_pars_fragment>
+#include <alphatest_pars_fragment>
+#include <alphahash_pars_fragment>
+#include <aomap_pars_fragment>
+#include <lightmap_pars_fragment>
+#include <emissivemap_pars_fragment>
+#include <envmap_common_pars_fragment>
+#include <envmap_pars_fragment>
+#include <fog_pars_fragment>
+#include <bsdfs>
+#include <lights_pars_begin>
+#include <normal_pars_fragment>
+#include <lights_phong_pars_fragment>
+#include <shadowmap_pars_fragment>
+#include <bumpmap_pars_fragment>
+#include <normalmap_pars_fragment>
+#include <specularmap_pars_fragment>
+#include <logdepthbuf_pars_fragment>
+#include <clipping_planes_pars_fragment>
+	varying vec2 vUv; 
+void main() {
+#include <clipping_planes_fragment> 
+
+
+vec4 diffuseColor = vec4( diffuse, 1. );
+
+ReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );
+vec3 totalEmissiveRadiance = emissive;
+#include <logdepthbuf_fragment>
+#include <map_fragment>
+#include <color_fragment>
+#include <alphamap_fragment>
+#include <alphatest_fragment>
+#include <alphahash_fragment>
+#include <specularmap_fragment>
+#include <normal_fragment_begin>
+#include <normal_fragment_maps>
+#include <emissivemap_fragment>
+#include <lights_phong_fragment>
+#include <lights_fragment_begin>
+#include <lights_fragment_maps>
+#include <lights_fragment_end>
+#include <aomap_fragment>   
+
+vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;
+
+#include <envmap_fragment>
+#include <opaque_fragment>
+#include <tonemapping_fragment>
+#include <colorspace_fragment>
+#include <fog_fragment>
+#include <premultiplied_alpha_fragment>
+#include <dithering_fragment>
+	
+	gl_FragColor = vec4(vec3(.5),1.);
+}
+				`;
+		//
+
+		const MAX_GEOMETRY_COUNT = 20000;
+		let t = 0
+		let matPlane,planeMesh
+		let aCurve = []
+		const Method = {
+			BATCHED: 'BATCHED',
+			NAIVE: 'NAIVE'
+		};
+
+		const api = {
+			method: Method.BATCHED,
+			count: 10	,
+			dynamic: 16,
+
+			sortObjects: true,
+			perObjectFrustumCulled: true,
+			opacity: 1,
+			useCustomSort: true,
+		};
+
+		init();
+		initGeometries();
+		initMesh();
+		animate();
+
+		//
+
+		function randomizeMatrix( matrix ) {
+
+			position.x = Math.random() * 40 - 20;
+			position.y = Math.random() * 40 - 20;
+			position.z = Math.random() * 40 - 20;
+
+			// rotation.x = Math.random() * 2 * Math.PI;
+			// rotation.y = Math.random() * 2 * Math.PI;
+			// rotation.z = Math.random() * 2 * Math.PI;
+
+			rotation.x = 0
+			rotation.y = 0
+			rotation.z = 0
+
+			quaternion.setFromEuler( rotation );
+
+			scale.x = scale.y = scale.z = 0.5 + ( Math.random() * 0.5 );
+
+			return matrix.compose( position, quaternion, scale );
+
+		}
+
+		function randomizeRotationSpeed( rotation ) {
+
+			rotation.x = Math.random() * 0.01;
+			rotation.y = Math.random() * 0.01;
+			rotation.z = Math.random() * 0.01;
+			return rotation;
+
+		}
+
+		function initGeometries() {
+
+			geometries = [
+				 new THREE.ConeGeometry( 1.0, 2.0 ),
+				new THREE.BoxGeometry( 2.0, 2.0, 2.0 ), 
+				new THREE.BoxGeometry( 1.0, 6.0, 1.0 ),
+				new THREE.SphereGeometry( 1.0, 16, 8 ),
+				new THREE.CapsuleGeometry( 1, 1, 4, 8 ),
+				//new THREE.TorusKnotGeometry( 2, .3, 15, 3 )
+			];
+
+		}
+
+		function createMaterial() {
+
+			if ( ! material ) {
+
+				//material = new THREE.MeshNormalMaterial();
+				//material = new THREE.MeshBasicMaterial({color:'blue'});
+				 material = new THREE.ShaderMaterial({
+					uniforms: THREE.UniformsUtils.merge( [
+						THREE.ShaderLib[ 'phong' ].uniforms,
+						{
+							'time': { value: 0 }
+						}
+					]),
+					vertexShader: document.getElementById( 'waterVertexShader' ).textContent,
+					fragmentShader: THREE.ShaderChunk[ 'meshphong_frag' ]
+				});
+				material.lights = true;
+				material.uniforms[ 'diffuse' ].value = new THREE.Vector3( .92,1.,.3 );
+				material.uniforms[ 'specular' ].value = new THREE.Color( .92,1.,.3 );
+				material.uniforms[ 'shininess' ].value = Math.max( 50, 1e-4 );
+			}
+
+			return material;
+
+		}
+
+		function cleanup() {
+
+			if ( mesh ) {
+
+				mesh.parent.remove( mesh );
+
+				if ( mesh.dispose ) {
+
+					mesh.dispose();
+
+				}
+
+			}
+
+		}
+
+		function initMesh() {
+
+			cleanup();
+
+			if ( api.method === Method.BATCHED ) {
+
+				initBatchedMesh();
+				initPlane()
+			} else {
+
+				initRegularMesh();
+
+			}
+
+		}
+
+		function initRegularMesh() {
+
+			mesh = new THREE.Group();
+			const material = createMaterial();
+
+			for ( let i = 0; i < api.count; i ++ ) {
+
+				const child = new THREE.Mesh( geometries[ i % geometries.length ], material );
+				randomizeMatrix( child.matrix );
+				child.matrix.decompose( child.position, child.quaternion, child.scale );
+				child.userData.rotationSpeed = randomizeRotationSpeed( new THREE.Euler() );
+				mesh.add( child );
+
+			}
+		
+			scene.add( mesh );
+
+		}
+		function randomFloat(min, max) {
+			return Math.random() * (max - min) + min;
+		}
+		function initPlane() {
+			const geo = new THREE.PlaneGeometry(10,10)
+			 matPlane = new THREE.ShaderMaterial({
+				uniforms:{
+					tex : {type:'t',value:null}
+				},
+				vertexShader : `
+				varying vec2 vUv;
+				void main() {
+					vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+					gl_Position = projectionMatrix * mvPosition;
+					vUv = uv;
+				}
+				`,
+				fragmentShader: `
+				varying vec2 vUv;
+				uniform sampler2D tex;
+				void main() {
+					vec4 texx = texture2D(tex,vUv);
+					gl_FragColor = texx;
+				}
+				`
+			})
+		//	matPlane = new THREE.MeshBasicMaterial({color:'blue'})
+		planeMesh = new THREE.Mesh(geo,matPlane)
+			scene.add(planeMesh)
+		}
+		function initBatchedMesh() {
+
+			const geometryCount = api.count;
+			const vertexCount = api.count * 200;
+			const indexCount = api.count * 1024;
+
+			const euler = new THREE.Euler();
+			const matrix = new THREE.Matrix4();
+			mesh = new THREE.BatchedMesh( geometryCount, vertexCount, indexCount, createMaterial() );
+			mesh.userData.rotationSpeeds = [];
+			for (let i = 0; i < geometryCount; i++) {
+				let radius = randomFloat(30, 40);
+				let zOffset = randomFloat(-5, 5);
+				let progress = Math.random() * 20;
+				let speed = randomFloat(0.02, 0.07);
+				aCurve.push(radius, progress, zOffset, speed);
+			}
+			let aCurveFloat32 = new Float32Array(aCurve);
+		
+			// disable full-object frustum culling since all of the objects can be dynamic.
+			mesh.frustumCulled = false;
+
+			ids.length = 0;
+			
+			for (let i = 0; i < api.count; i++) {
+				const id = mesh.addGeometry(geometries[i % geometries.length]);
+				const geometry = geometries[i % geometries.length];
+				
+				console.log(geometry)
+				ids.push(id)
+				// Generate random position values
+				randomizeMatrix(matrix);
+				mesh.setMatrixAt(id, matrix);
+				console.log(matrix)
+				const rotationMatrix = new THREE.Matrix4();
+				//rotationMatrix.makeRotationFromEuler(randomizeRotationSpeed(euler));
+				mesh.userData.rotationSpeeds.push(rotationMatrix);
+				
+			}
+			if (!mesh.geometry.getAttribute("aCurve")) {
+					
+					mesh.geometry.setAttribute("aCurve",	new THREE.BufferAttribute(new Float32Array(aCurveFloat32), 4, false));
+				}
+
+
+				// Tạo một mảng Float32 để lưu trữ dữ liệu ma trận
+const matrixData = new Float32Array(api.count * 16);
+
+for (let i = 0; i < api.count; i++) {
+  // Tạo và cấu hình ma trận
+  const matrix = new THREE.Matrix4();
+  randomizeMatrix(matrix);
+
+  // Chuyển đổi ma trận thành một mảng và lưu trữ nó trong matrixData
+  const matrixArray = matrix.toArray();
+  matrixData.set(matrixArray, i * 16);
+}
+
+
+
+
+if (!mesh.geometry.getAttribute("transformationMatrix")) {
+					
+					mesh.geometry.setAttribute("transformationMatrix",	new THREE.BufferAttribute(new Float32Array(matrixData), 4, false));
+				}
+
+
+			console.log(`initBatchedMesh`,mesh)
+			scene.add( mesh );
+
+		}
+
+		function init() {
+
+			const width = window.innerWidth;
+			const height = window.innerHeight;
+
+			// camera
+
+			camera = new THREE.PerspectiveCamera( 70, width / height, 1, 100 );
+			camera.position.z = 30;
+
+			// renderer
+
+			renderer = new THREE.WebGLRenderer( { antialias: false } );
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.setSize( width, height );
+			document.body.appendChild( renderer.domElement );
+
+			// scene
+
+			scene = new THREE.Scene();
+			scene.background = new THREE.Color( 'gray' );
+			const sun2 = new THREE.DirectionalLight( 0xFFFFFF, 10.0 );
+				sun2.position.set( 100, 100,100 );
+				scene.add( sun2 ); 
+			// controls
+
+			controls = new OrbitControls( camera, renderer.domElement );
+		//	controls.autoRotate = true;
+		//	controls.autoRotateSpeed = 1.0;
+		const axesHelper = new THREE.AxesHelper( 50 );
+scene.add( axesHelper );
+			// stats
+
+			stats = new Stats();
+			document.body.appendChild( stats.dom );
+
+			// gui
+
+			gui = new GUI();
+			gui.add( api, 'count', 1, MAX_GEOMETRY_COUNT ).step( 1 ).onChange( initMesh );
+			gui.add( api, 'dynamic', 0, MAX_GEOMETRY_COUNT ).step( 1 );
+			gui.add( api, 'method', Method ).onChange( initMesh );
+			gui.add( api, 'opacity', 0, 1 ).onChange( v => {
+
+				if ( v < 1 ) {
+
+					material.transparent = true;
+					material.depthWrite = false;
+
+				} else {
+
+					material.transparent = false;
+					material.depthWrite = true;
+
+				}
+
+				material.opacity = v;
+				material.needsUpdate = true;
+
+			} );
+			gui.add( api, 'sortObjects' );
+			gui.add( api, 'perObjectFrustumCulled' );
+			gui.add( api, 'useCustomSort' );
+
+			guiStatsEl = document.createElement( 'li' );
+			guiStatsEl.classList.add( 'gui-stats' );
+
+			// listeners
+			setTimeout(() => {
+				console.log(ids)
+			},5000)
+			window.addEventListener( 'resize', onWindowResize );
+
+		}
+
+		//
+
+		function sortFunction( list, camera ) {
+
+			// initialize options
+			this._options = this._options || {
+				get: el => el.z,
+				aux: new Array( this.maxGeometryCount )
+			};
+
+			const options = this._options;
+			options.reversed = this.material.transparent;
+
+			// convert depth to unsigned 32 bit range
+			const factor = ( 2 ** 32 - 1 ) / camera.far; // UINT32_MAX / max_depth
+			for ( let i = 0, l = list.length; i < l; i ++ ) {
+
+				list[ i ].z *= factor;
+
+			}
+
+			// perform a fast-sort using the hybrid radix sort function
+			radixSort( list, options );
+
+		}
+
+		function onWindowResize() {
+
+			const width = window.innerWidth;
+			const height = window.innerHeight;
+
+			camera.aspect = width / height;
+			camera.updateProjectionMatrix();
+
+			renderer.setSize( width, height );
+
+		}
+		
+		function animate() {
+
+			requestAnimationFrame( animate );
+
+		//	animateMeshes();
+			t +=.05
+			controls.update();
+			stats.update();
+			if(material) {
+				//console.log(material)
+				material.uniforms.time.value = t
+			}
+			render();
+
+		}
+
+		function animateMeshes() {
+	
+			const loopNum = Math.min( api.count, api.dynamic );
+
+			if ( api.method === Method.BATCHED ) {
+
+				for ( let i = 0; i < loopNum; i ++ ) {
+				
+					const rotationMatrix = mesh.userData.rotationSpeeds[ i ];
+					const id = ids[ i ];
+					
+					mesh.getMatrixAt( id, matrix );
+				//	matrix.multiply( rotationMatrix );
+					matrix.makeTranslation(Math.sin(t), id, 0);
+					mesh.setMatrixAt( id, matrix );
+
+				}
+
+			} else {
+
+				for ( let i = 0; i < loopNum; i ++ ) {
+
+					const child = mesh.children[ i ];
+					const rotationSpeed = child.userData.rotationSpeed;
+
+					child.position.set(
+						child.rotation.x + rotationSpeed.x,
+						child.rotation.y + rotationSpeed.y,
+						child.rotation.z + rotationSpeed.z
+					);
+
+				}
+
+			}
+
+		}
+
+		function render() {
+
+			if ( mesh.isBatchedMesh ) {
+				planeMesh.material.uniforms.tex.value = mesh._matricesTexture
+				mesh.sortObjects = api.sortObjects;
+				mesh.perObjectFrustumCulled = api.perObjectFrustumCulled;
+				mesh.setCustomSort( api.useCustomSort ? sortFunction : null );
+
+			}
+
+			renderer.render( scene, camera );
+
+		}
+
+	</script>
+
+</body>
+</html>
